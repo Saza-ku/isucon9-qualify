@@ -66,6 +66,8 @@ var (
 	store     sessions.Store
 )
 
+var categoryByIDCache map[int]Category
+
 type Config struct {
 	Name string `json:"name" db:"name"`
 	Val  string `json:"val" db:"val"`
@@ -287,6 +289,7 @@ func main() {
 	}()
 
 	newCategoryItemsCache = map[string]resNewItems{}
+	categoryByIDCache = map[int]Category{}
 
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
@@ -417,6 +420,10 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
+	if c, ok := categoryByIDCache[categoryID]; ok {
+		return c, nil
+	}
+
 	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
 	if category.ParentID != 0 {
 		parentCategory, err := getCategoryByID(q, category.ParentID)
@@ -425,6 +432,9 @@ func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err err
 		}
 		category.ParentCategoryName = parentCategory.CategoryName
 	}
+
+	categoryByIDCache[categoryID] = category
+
 	return category, err
 }
 
@@ -465,6 +475,7 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 	ri := reqInitialize{}
 
 	newCategoryItemsCache = map[string]resNewItems{}
+	categoryByIDCache = map[int]Category{}
 
 	err := json.NewDecoder(r.Body).Decode(&ri)
 	if err != nil {
