@@ -279,10 +279,14 @@ func init() {
 	))
 }
 
+var newCategoryItemsCache map[string]resNewItems
+
 func main() {
 	go func() {
 		log.Fatal(http.ListenAndServe(":6060", nil))
 	}()
+
+	newCategoryItemsCache = map[string]resNewItems{}
 
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
@@ -310,7 +314,7 @@ func main() {
 	}
 
 	dsn := fmt.Sprintf(
-		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local",
+		"%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=true&loc=Local&interpolateParams=true",
 		user,
 		password,
 		host,
@@ -459,6 +463,8 @@ func getIndex(w http.ResponseWriter, r *http.Request) {
 
 func postInitialize(w http.ResponseWriter, r *http.Request) {
 	ri := reqInitialize{}
+
+	newCategoryItemsCache = map[string]resNewItems{}
 
 	err := json.NewDecoder(r.Body).Decode(&ri)
 	if err != nil {
@@ -611,20 +617,6 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rootCategory, err := getCategoryByID(dbx, rootCategoryID)
-	if err != nil || rootCategory.ParentID != 0 {
-		outputErrorMsg(w, http.StatusNotFound, "category not found")
-		return
-	}
-
-	var categoryIDs []int
-	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-
 	query := r.URL.Query()
 	itemIDStr := query.Get("item_id")
 	var itemID int64
@@ -644,6 +636,26 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 			outputErrorMsg(w, http.StatusBadRequest, "created_at param error")
 			return
 		}
+	}
+
+	if rni, ok := newCategoryItemsCache[fmt.Sprintf("%v:%v:%v", itemID, createdAt, rootCategoryID)]; ok {
+		fmt.Println("hit")
+		w.Header().Set("Content-Type", "application/json;charset=utf-8")
+		json.NewEncoder(w).Encode(rni)
+		return
+	}
+
+	rootCategory, err := getCategoryByID(dbx, rootCategoryID)
+	if err != nil || rootCategory.ParentID != 0 {
+		outputErrorMsg(w, http.StatusNotFound, "category not found")
+		return
+	}
+	var categoryIDs []int
+	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
+	if err != nil {
+		log.Print(err)
+		outputErrorMsg(w, http.StatusInternalServerError, "db error")
+		return
 	}
 
 	var inQuery string
@@ -728,6 +740,8 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 		Items:            itemSimples,
 		HasNext:          hasNext,
 	}
+
+	newCategoryItemsCache[fmt.Sprintf("%v:%v:%v", itemID, createdAt, rootCategoryID)] = rni
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(rni)
@@ -1120,6 +1134,7 @@ func getItem(w http.ResponseWriter, r *http.Request) {
 }
 
 func postItemEdit(w http.ResponseWriter, r *http.Request) {
+	newCategoryItemsCache = map[string]resNewItems{}
 	rie := reqItemEdit{}
 	err := json.NewDecoder(r.Body).Decode(&rie)
 	if err != nil {
@@ -1271,6 +1286,7 @@ func getQRCode(w http.ResponseWriter, r *http.Request) {
 }
 
 func postBuy(w http.ResponseWriter, r *http.Request) {
+	newCategoryItemsCache = map[string]resNewItems{}
 	rb := reqBuy{}
 
 	err := json.NewDecoder(r.Body).Decode(&rb)
@@ -1737,6 +1753,7 @@ func postShipDone(w http.ResponseWriter, r *http.Request) {
 }
 
 func postComplete(w http.ResponseWriter, r *http.Request) {
+	newCategoryItemsCache = map[string]resNewItems{}
 	reqpc := reqPostComplete{}
 
 	err := json.NewDecoder(r.Body).Decode(&reqpc)
@@ -1890,6 +1907,7 @@ func postComplete(w http.ResponseWriter, r *http.Request) {
 }
 
 func postSell(w http.ResponseWriter, r *http.Request) {
+	newCategoryItemsCache = map[string]resNewItems{}
 	csrfToken := r.FormValue("csrf_token")
 	name := r.FormValue("name")
 	description := r.FormValue("description")
@@ -2039,6 +2057,7 @@ func secureRandomStr(b int) string {
 }
 
 func postBump(w http.ResponseWriter, r *http.Request) {
+	newCategoryItemsCache = map[string]resNewItems{}
 	rb := reqBump{}
 	err := json.NewDecoder(r.Body).Decode(&rb)
 	if err != nil {
